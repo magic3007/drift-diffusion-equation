@@ -4,22 +4,23 @@ using Printf
 # =====================================================
 # Define fundamental constants and material parameters
 # =====================================================
-q = 1.60217662e-19 # [C] electron charge
-kb = 1.38064852e-23 # [J/K] Boltzmann constant
+q = 1.602e-19 # [C] electron charge
+kb = 1.38e-23 # [J/K] Boltzmann constant
 eps = 1.05e-12 # [F/cm] this include the eps = 11.7 for Si
 T = 300.0 # [K] temperature
 ni = 1.5e10 # [cm^-3] intrinsic carrier concentration
 Vt = kb * T / q # [V] thermal voltage
-RNc = 2.8e20 # [cm^-3] intrinsic carrier concentration in conduction band
+RNc = 2.8e19 # [cm^-3] intrinsic carrier concentration in conduction band
 dEc = Vt * log(RNc / ni) # [V] conduction band offset
+
+mu_n0 = 1252 # [cm^2/Vs] electron mobility
+mu_p0 = 407 # [cm^2/Vs] hole mobility
 
 # =====================================================
 # Define doping profile
 # =====================================================
 N_d = 1e16 # [cm^-3] the density of donor atoms 
 N_a = 1e16 # [cm^-3] the density of acceptor atoms
-dVa_ = 1e-1 # [V] voltage step
-Va_max = 1 # [V] maximum applied bias
 
 # =====================================================
 # Define some material constants
@@ -27,21 +28,17 @@ Va_max = 1 # [V] maximum applied bias
 Ncn = 1.432e17 # [cm^-3] conduction band density of states
 Ncp = 2.67e17 # [cm^-3] valence band density of states
 
-rmu_1n = 88 # [cm^2/Vs] mobility of electrons
-rmu_2n = 1252 # [cm^2/Vs] mobility of electrons
-rmu_1p = 54 # [cm^2/Vs] mobility of holes
-rmu_2p = 407 # [cm^2/Vs] mobility of holes
-
 tau_n0 = 5e-7 # [s] electron lifetime
 tau_p0 = 5e-7 # [s] hole lifetime
-
-Nsrh_n = 5e16 # [cm^-3] electron SRH recombination rate
-Nsrh_p = 5e16 # [cm^-3] hole SRH recombination rate
 
 # =============================================================
 # Define the simulation parameters
 # =============================================================
-delta_acc = 1e-10 # preset the tolerance
+delta_acc = 1e-5 # preset the tolerance
+dVa = Vt / 3 # [V] voltage step
+# Va_max = 0.625 # [V] maximum applied bias
+Va_max = dVa # [V] maximum applied bias
+Va_max = dVa
 
 # =============================================================
 # Calculate relevant parameters for the simulation
@@ -94,7 +91,10 @@ dop = dop / ni
 # throughout the whole structure
 # =====================================================================
 zz = 0.5 * dop
-fi = log.(zz .* (1 .+ sign.(zz) .* sqrt.(1 .+ 1.0 ./ zz .^ 2)))
+xx = zz .* (1 .+ sign.(zz) .* sqrt.(1 .+ 1.0 ./ zz .^ 2))
+fi = log.(xx)
+n = xx
+p = 1 / xx
 
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # %%                                                                 %%
@@ -103,6 +103,7 @@ fi = log.(zz .* (1 .+ sign.(zz) .* sqrt.(1 .+ 1.0 ./ zz .^ 2)))
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function Ber(x)
+    return x / (exp(x) - 1)
     if x > 1e-2
         return x * exp(-x) / (1 .- exp(-x))
     elseif x < -1e-2
@@ -186,7 +187,7 @@ while !flag_conv
     fi_old = copy(fi)
     fi = LuDecomposition(a, b, c, f)
     delta = maximum(abs.(fi - fi_old))
-    @printf("k_iter: %d  delta: %f\n", k_iter, delta)
+    @printf("k_iter: %d  delta: %e\n", k_iter, delta)
     # test update in the outer iteration loop
     if delta < delta_acc
         flag_conv = true
@@ -201,21 +202,27 @@ end
 # ========================================================================
 
 xx = collect(0:n_max-1) * dx * Ldi # [cm] x-axis
-cond_band0 = dEc .- Vt .* fi # [eV], conduction band
-tot_charge0 = -q .* ni .* (exp.(fi) .- exp.(-fi) .- dop) # [C/cm^3], total charge density
+Ec = dEc .- Vt .* fi # [eV], conduction band
+n = exp.(fi)
+p = exp.(-fi)
+ro = -q .* ni .* (n .- p .- dop) # [C/cm^3], total charge density
 el_field1, el_field2 = zeros(n_max), zeros(n_max)
 el_field1[2:end-1] = -(fi[3:end] .- fi[2:end-1]) * Vt / dx / Ldi # [V/cm]
 el_field2[2:end-1] = -(fi[3:end] .- fi[1:end-2]) * Vt / 2 / dx / Ldi # [V/cm]
-n = exp.(fi)
-p = exp.(-fi)
+nf = n * ni
+pf = p * ni
 
-plot(xx, cond_band0, label="Conduction band0", linewidth=3)
-plot(xx, tot_charge0, label="Total charge density0", linewidth=3)
-plot(xx, el_field1, label="Electric field0 (1)", linewidth=3)
-plot(xx, el_field2, label="Electric field0 (2)", linewidth=3)
-plot(xx, n * ni, label="Electron density0", linewidth=3)
-plot(xx, p * ni, label="Hole density0", linewidth=3)
-
+xx_um = xx * 1e4 # [um] x-axis
+tmp = plot(xx_um, Ec, xlabel="x [um]", ylabel="Potential [eV]", title="Conduction band vs Position - at Equilibrium", label="", linewidth=3)
+savefig(tmp, "Conduction band vs Position - at Equilibrium.pdf")
+tmp = plot(xx_um, ro, xlabel="x [um]", ylabel="Charge density [C/cm^3]", title="Total charge density vs Position - at Equilibrium", label="", linewidth=3)
+savefig(tmp, "Total charge density vs Position - at Equilibrium.pdf")
+t = plot(xx_um, el_field1, xlabel="x [um]", ylabel="Electric field [V/cm]", title="Electric field vs Position - at Equilibrium(1)", label="", linewidth=3)
+savefig(t, "Electric field vs Position - at Equilibrium(1).pdf")
+t = plot(xx_um, el_field2, xlabel="x [um]", ylabel="Electric field [V/cm]", title="Electric field vs Position - at Equilibrium(2)", label="", linewidth=3)
+savefig(t, "Electric field vs Position - at Equilibrium(2).pdf")
+t = plot(xx_um, [nf, pf], xlabel="x [um]", ylabel="Density [cm^-3]", title="Electron and hole densities vs Position - at Equilibrium", label=["Electron density" "Hole density"], yaxis=:log, linewidth=3)
+savefig(t, "Electron and hole densities vs Position - at Equilibrium.pdf")
 
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # %%                                                                 %%
@@ -223,19 +230,46 @@ plot(xx, p * ni, label="Hole density0", linewidth=3)
 # %%                                                                 %%
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-dVa = dVa_ / Vt # normalized
-Va = 0
-@assert Va_max > 0
+# ========================================================================
+# Calculate the low field mobility
+# ========================================================================
 
-Vas = collect(0:dVa:Va_max)
-av_currs = zeros(length(Vas))
+TL = 300 # [K]
+vsat_n = 2.4e7 / (1 + 0.8 * exp(TL / 600)) # [cm/s], Saturation Velocity of Electrons
+vsat_p = vsat_n # [cm/s], Saturation Velocity of Holes
+beat_n = 2
+beta_p = 1
 
-println("Convergence of the Gummel cycles")
+# ========================================================================
+# Start the main Loop to increment the Anode voltage by Vt, till it
+# reaches the maximum voltage.
+# ========================================================================
 
+Vas, av_currs = zeros(0), zeros(0)
 
-while Va < Va_max / Vt
+v_index, Va = 0, 0
+while Va < Va_max
     Va = Va + dVa
+    v_index += 1
     fi[1] += dVa
+    append!(Vas, Va)
+
+    # Initial the first and last node for Poisson's equation 
+    a[1], a[end] = 0, 0
+    b[1], b[end] = 1, 1
+    c[1], c[end] = 0, 0
+    f[1], f[end] = fi[1], fi[end]
+
+    # ========================================================================
+    # (1) we use constant mobility without field dependancy
+    # ========================================================================
+    mun = ones(n_max) * mu_n0
+    mup = ones(n_max) * mu_p0
+    munim1by2, munip1by2, mupim1by2, mupip1by2 = zeros(n_max), zeros(n_max), zeros(n_max), zeros(n_max)
+    munim1by2[2:end-1] = (mun[1:end-2] + mun[2:end-1]) / 2
+    munip1by2[2:end-1] = (mun[2:end-1] + mun[3:end]) / 2
+    mupim1by2[2:end-1] = (mup[1:end-2] + mup[2:end-1]) / 2
+    mupip1by2[2:end-1] = (mup[2:end-1] + mup[3:end]) / 2
 
     flag_conv = false # flag for convergence
     k_iter = 0
@@ -243,113 +277,68 @@ while Va < Va_max / Vt
     while !flag_conv
         k_iter += 1
 
-        # (1) solution of electron current density equation
+        # ========================================================================
+        # (2) Solve the continuity equation for ELECTRON
+        # ========================================================================
 
-        # (1a) Define the elements of the coefficient matrix and initialize
-        # the forcing function 
-        dx2 = dx^2 * Ldi^2
-        NN = abs.(dop)
-        denom = 1 + NN / Ncn
-        rmu_n = rmu_1n + rmu_2n / denom
-        y = 175 / 300
-        yy = (exp(y) - exp(-y)) / (exp(y) + exp(-y))
-        vsat_n = 1.38e7 * sqrt(yy)
-        beat_n = 2
-        f_plus, f_min = zeros(n_max), zeros(n_max)
-        f_plus[2:end-1] = abs(fi[2:end-1] .- fi[3:end]) / dx * Vt / Ldi
-        f_min[2:end-1] = abs(fi[1:end-2] .- fi[2:end-1]) / dx * Vt / Ldi
-
-        denom = rmu_n * f_plus / vsat_n
-        denom = 1 + denom .^ beat_n
-        rmu_plus = rmu_n * (1 / denom) .^ (1 / beat_n)
-
-        denom = rmu_n * f_min / vsat_n
-        denom = 1 + denom .^ beat_n
-        rmu_min = rmu_n * (1 / denom) .^ (1 / beat_n)
-
-        diff_min = Vt * rmu_min
-        diff_plus = Vt * rmu_plus
-
-        an, cn, bn = zeros(n_max), zeros(n_max), zeros(n_max)
-        an[2:end-1] = diff_min .* Ber(fi[1:end-2] .- fi[2:end-1])
-        cn[2:end-1] = diff_plus .* Ber(fi[3:end] .- fi[2:end-1])
-        bn = -(
-            diff_min .* Ber(fi[2:end-1] - fi[1:end-2]) +
-            dif_plus .* Ber(fi[2:end-1] - fi[3:end])
-        )
-        tau_n = tau_n0 / (1 + NN / Nsrh_n)
-        tau_p = tau_p0 / (1 + NN / Nsrh_p)
-        nrum = n .* p - 1
-        denom = tau_n * (p + 1) .+ tau_p * (n + 1)
-        fn = rnum / denom * dx2
-
-        # (1b) Define the elements of the coefficient matrix and initialize
-        # the forcing function at the ohmic contacts
+        # (2.a) Define the elements of the coefficient matrix and initialize
+        # the forcing function at the ohmic contacts for ELECTRON continuity equations
+        an, cn, bn, fn = zeros(n_max), zeros(n_max), zeros(n_max), zeros(n_max)
         an[1], an[end] = 0, 0
-        cn[1], cn[end] = 0, 0
         bn[1], bn[end] = 1, 1
+        cn[1], cn[end] = 0, 0
         fn[1], fn[end] = n[1], n[end]
 
-        # (1c) Solve electron current density equation using LU decomposition method
+        # (2.b) coefficients for the ELECTRON continuity equation
+        cn[2:end-1] = munip1by2[2:end-1] .* Ber.(fi[3:end] .- fi[2:end-1])
+        an[2:end-1] = munim1by2[2:end-1] .* Ber.(fi[1:end-2] .- fi[2:end-1])
+        bn[2:end-1] = -(
+            munim1by2[2:end-1] .* Ber.(fi[2:end-1] .- fi[1:end-2]) +
+            munip1by2[2:end-1] .* Ber.(fi[2:end-1] .- fi[3:end])
+        )
+        fn = (Ldi^2 * dx2 / Vt) .* (p .* n .- 1) ./ (tau_p0 * (1 .+ n) .+ tau_n0 * (1 .+ p))
+
+        # (2.c) Solve electron current density equation using LU decomposition method
         n_old = copy(n)
         n = LuDecomposition(an, bn, cn, fn)
 
-        # (2) solution of hole current density equation
-        # (2a) Define the elements of the coefficient matrix and initialize the forcing function
-        dx2 = dx^2 * Ldi^2
-        NN = abs.(dop)
-        denom = 1 + NN / Ncp
-        rmu_p = rmu_1p + rmu_2p / denom # low-field hole mobility
-        y = 312 / 300
-        yy = (exp(y) - exp(-y)) / (exp(y) + exp(-y))
-        vsat_p = 9.05e6 * sqrt(yy)
-        beta_p = 1
-        f_plus, f_min = zeros(n_max), zeros(n_max)
-        f_plus[2:end-1] = abs(fi[2:end-1] .- fi[3:end]) / dx * Vt / Ldi
-        f_min[2:end-1] = abs(fi[1:end-2] .- fi[2:end-1]) / dx * Vt / Ldi
-        denom = rmu_p * f_plus / vsat_p
-        denom = 1 + denom .^ beta_p
-        rmu_plus = rmu_p * (1 / denom) .^ (1 / beta_p)
-        denom = rmu_p * f_min / vsat_p
-        denom = 1 + denom .^ beta_p
-        rmu_min = rmu_p * (1 / denom) .^ (1 / beta_p)
-        diff_min = Vt * rmu_min
-        diff_plus = Vt * rmu_plus
-        ap, cp, bp = zeros(n_max), zeros(n_max), zeros(n_max)
-        ap[2:end-1] = diff_min .* Ber(fi[2:end-1] .- fi[1:end-2])
-        cp[2:end-1] = diff_plus .* Ber(fi[2:end-1] .- fi[3:end])
-        bp = -(
-            diff_min .* Ber(fi[1:end-2] .- fi[2:end-1]) +
-            diff_plus .* Ber(fi[3:end] .- fi[2:end-1])
-        )
-        tau_n = tau_n0 / (1 + NN / Nsrh_n)
-        tau_p = tau_p0 / (1 + NN / Nsrh_p)
-        nrum = n .* p - 1
-        denom = tau_n * (p + 1) .+ tau_p * (n + 1)
-        fp = rnum / denom * dx2
+        # ========================================================================
+        # (3) Solve the continuity equation for HOLE
+        # ========================================================================
 
-        # (2b) Define the elements of the coefficient matrix and initialize the forcing function at the ohmic contacts
+        # (3.a) Define the elements of the coefficient matrix and initialize
+        # the forcing function at the ohmic contacts for HOLE continuity equations
+        ap, cp, bp, fp = zeros(n_max), zeros(n_max), zeros(n_max), zeros(n_max)
         ap[1], ap[end] = 0, 0
-        cp[1], cp[end] = 0, 0
         bp[1], bp[end] = 1, 1
+        cp[1], cp[end] = 0, 0
         fp[1], fp[end] = p[1], p[end]
 
-        # (2c) Solve hole current density equation using LU decomposition method
+        # (3.b) coefficients for the HOLE continuity equation
+        cp[2:end-1] = mupip1by2[2:end-1] .* Ber.(fi[2:end-1] .- fi[3:end])
+        ap[2:end-1] = mupim1by2[2:end-1] .* Ber.(fi[2:end-1] .- fi[1:end-2])
+        bp[2:end-1] = -(
+            mupim1by2[2:end-1] .* Ber.(fi[1:end-2] .- fi[2:end-1]) +
+            mupip1by2[2:end-1] .* Ber.(fi[3:end] .- fi[2:end-1])
+        )
+        fp = (Ldi^2 * dx2 / Vt) .* (p .* n .- 1) ./ (tau_p0 .* (n .+ 1) .+ tau_n0 .* (p .+ 1))
+
+        # (3.c) Solve hole current density equation using LU decomposition method
         p_old = copy(p)
         p = LuDecomposition(ap, bp, cp, fp)
 
-        # (3) solution of electric potential equation
-        # (3a) Define the elements of the coefficient matrix and initialize the forcing function
-        dx2 = dx^2
+        # ========================================================================
+        # (4) Calculate the potential again using Poisson's equation and check convergence
+        # ========================================================================
         a = ones(n_max) / dx2
         c = ones(n_max) / dx2
-        b = -(2 / dx2 + (n .+ p))
+        b = -(2 / dx2 .+ (n .+ p))
         f = n .- p .- dop .- fi .* (n .+ p)
 
         # (3b) Define the elements of the coefficient matrix and initialize the forcing function at the ohmic contacts
         a[1], a[end] = 0, 0
-        c[1], c[end] = 0, 0
         b[1], b[end] = 1, 1
+        c[1], c[end] = 0, 0
         f[1], f[end] = fi[1], fi[end]
 
         # (3c) Solve electric potential equation using LU decomposition method
@@ -357,11 +346,16 @@ while Va < Va_max / Vt
         fi = LuDecomposition(a, b, c, f)
 
         delta = maximum(abs.(fi - fi_old))
+        if isnan(delta)
+            @printf("NaN detected at k_iter = %d", k_iter)
+            break
+        end
+
         @printf("Va: %f, k_iter: %d, delta: %e\n", Va, k_iter, delta)
         if delta < delta_acc
             flag_conv = true
         else
-            b[2:end-1] = -(2 / dx2 + (n[2:end-1] .+ p[2:end-1]))
+            b[2:end-1] = -(2 / dx2 .+ (n[2:end-1] .+ p[2:end-1]))
             f[2:end-1] = n[2:end-1] .- p[2:end-1] .- dop[2:end-1] .- fi[2:end-1] .* (n[2:end-1] .+ p[2:end-1])
         end
     end
@@ -370,53 +364,39 @@ while Va < Va_max / Vt
     # Calculate currents
     # ==============================================================================
 
-    aa = q * ni * Vt / dx / Ldi
+    aa_n = q * mun * Vt / dx / Ldi * ni
+    aa_p = q * mup * Vt / dx / Ldi * ni
 
-    # ==============================================================================
-    # Electron current density
-    # ==============================================================================
+    # (1) Electron current density
+    Jnim1by2, Jnip1by2, curr_n = zeros(n_max), zeros(n_max), zeros(n_max)
+    Jnim1by2[2:end-1] = ( 
+        n[2:end-1] .* Ber.(fi[2:end-1] .- fi[1:end-2]) .-
+        n[1:end-2] .* Ber.(fi[1:end-2] .- fi[2:end-1])
+    )
+    Jnip1by2[2:end-1] = (
+        n[3:end] .* Ber.(fi[3:end] .- fi[2:end-1]) .-
+        n[2:end-1] .* Ber.(fi[2:end-1] .- fi[3:end])
+    )
+    curr_n = (Jnim1by2 .+ Jnip1by2) / 2 .* aa_n
 
-    NN = abs.(dop)
-    denom = 1 + NN / Ncp
-    rmu_n = rmu_1n + rmu_2n / denom # low-field electron mobility
-    y = 175 / 300
-    yy = (exp(y) - exp(-y)) / (exp(y) + exp(-y))
-    vsat_n = 1.38e7 * sqrt(yy)
-    beta_n = 2
-    f_plus, f_min, curr_n = zeros(n_max), zeros(n_max), zeros(n_max)
-    f_plus[2:end-1] = abs(fi[2:end-1] .- fi[3:end]) / dx * Vt / Ldi
-    denom = rmu_n * f_plus / vsat_n
-    denom = 1 + denom .^ beta_n
-    rmu_plus_n = rmu_n * (1 / denom) .^ (1 / beta_n)
-    curr_n[2:end-1] = rmu_plus_n * (n[3:end] * Ber.(fi[3:end], fi[2:end-1]) .- n[2:end-1] * Ber.(fi[2:end-1], fi[3:end]))
+    # (2)Hole current density
+    Jpim1by2, Jpip1by2, curr_p = zeros(n_max), zeros(n_max), zeros(n_max)
+    Jpim1by2[2:end-1] = (
+        p[2:end-1] .* Ber.(fi[1:end-2] .- fi[2:end-1]) .-
+        p[1:end-2] .* Ber.(fi[2:end-1] .- fi[1:end-2])
+    )
+    Jpip1by2[2:end-1] = (
+        p[3:end] .* Ber.(fi[2:end-1] .- fi[3:end]) .-
+        p[2:end-1] .* Ber.(fi[3:end] .- fi[2:end-1])
+    )
+    curr_p = (Jpim1by2 .+ Jpip1by2) / 2 .* aa_p
 
-    # ==============================================================================
-    # Hole current density
-    # ==============================================================================
-
-    NN = abs.(dop)
-    denom = 1 + NN / Ncp
-    rmu_p = rmu_1p + rmu_2p / denom # low-field hole mobility
-    y = 312 / 300
-    yy = (exp(y) - exp(-y)) / (exp(y) + exp(-y))
-    vsat_p = 9.05e6 * sqrt(yy)
-    beta_p = 1
-    f_plus, f_min, curr_p = zeros(n_max), zeros(n_max), zeros(n_max)
-    f_plus[2:end-1] = abs(fi[2:end-1] .- fi[3:end]) / dx * Vt / Ldi
-    denom = rmu_p * f_plus / vsat_p
-    denom = 1 + denom .^ beta_p
-    rmu_plus_p = rmu_p * (1 / denom) .^ (1 / beta_p)
-    curr_p[2:end-1] = rmu_plus_p * (p[2:end-1] * Ber.(fi[3:end], fi[2:end-1]) .- p[3:end] * Ber.(fi[2:end-1], fi[3:end]))
-
-    curr_n *= aa
-    curr_p *= aa
     tot_curr = curr_n .+ curr_p
     tot_curr_sum = sum(tot_curr)
 
     av_curr = tot_curr_sum / (n_max - 2)
-    @printf("Va: %f, av_curr: %e\n", Va * Vt, av_curr)
-    av_currs.push!(av_curr)
-
+    @printf("Va: %f, av_curr: %e\n", Va, av_curr)
+    append!(av_currs, av_curr)
 end
 
 # ==============================================================================
