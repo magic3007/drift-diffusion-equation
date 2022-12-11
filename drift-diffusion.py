@@ -62,7 +62,7 @@ Ldi = math.sqrt(eps * Vt / (q * ni)) # [cm]
 # Setting the size of the simulation domain based on the 
 # analytical results for the width of the depletion region
 # ==============================================================
-x_max = max(W_n, W_p) * 50 # [cm]
+x_max = max(W_n, W_p) * 20 # [cm]
 
 # ==============================================================
 # Setting the grid size based on the extrinsic Debye lengths
@@ -146,6 +146,55 @@ for i in range(n_max):
     else:
         dop[i] = N_d / ni
 
+# =============================================================
+# Utility functions
+# =============================================================
+
+def PlotResult(n, p, fi, title):
+    xx_um = [1e4 * x * dx * Ldi for x in range(n_max)]# [cm] x-axis
+    Ec = [dEc - Vt * fi[i] for i in range(n_max)] # [eV], conduction band
+    ro = [-q * ni * (n[i] - p[i] - dop[i]) for i in range(n_max)] # [C/cm^3], total charge density
+    el_field1 = [0 for x in range(n_max)] # [V/cm], electric field
+    el_field2 = [0 for x in range(n_max)] # [V/cm], electric field
+    for i in range(1, n_max-1):
+        el_field1[i] = -(fi[i+1] - fi[i]) * Vt / dx / Ldi
+        el_field2[i] = -(fi[i+1] - fi[i-1]) * Vt / dx / Ldi / 2
+    nf = [ni * x for x in n]
+    pf = [ni * x for x in p]
+
+    filename = title + ".pdf"
+    fig, ax = plt.subplots(2, 2, figsize=(15, 15))
+    fig.tight_layout(h_pad=3, w_pad=3)
+    fig.suptitle(title, fontsize=16)
+    plt.subplots_adjust(top=0.95)
+    ax[0][0].plot(xx_um, Ec, linewidth=3)
+    ax[0][0].set_xlabel("x [um]")
+    ax[0][0].set_ylabel("Potential [eV]")
+    ax[0][0].set_title("Conduction band")
+    ax[0][0].grid(True)
+    
+    ax[0][1].plot(xx_um, ro, linewidth=3)
+    ax[0][1].set_xlabel("x [um]")
+    ax[0][1].set_ylabel("Charge density [C/cm^3]")
+    ax[0][1].set_title("Total charge density")
+    ax[0][1].grid(True)
+    
+    ax[1][0].plot(xx_um, el_field1, linewidth=3)
+    ax[1][0].set_xlabel("x [um]")
+    ax[1][0].set_ylabel("Electric field [V/cm]")
+    ax[1][0].set_title("Electric field")
+    ax[1][0].grid(True)
+    
+    ax[1][1].plot(xx_um, nf, linewidth=3, label="Electron density")
+    ax[1][1].plot(xx_um, pf, linewidth=3, label="Hole density")
+    ax[1][1].set_xlabel("x [um]")
+    ax[1][1].set_ylabel("Density [cm^-3]")
+    ax[1][1].set_title("Electron and hole densities")
+    ax[1][1].set_yscale("log")
+    ax[1][1].grid(True)
+     
+    plt.savefig(filename)
+    
 # =====================================================================
 # Initialize the potential based on the requirement of charge neutrality
 # throughout the whole structure
@@ -200,6 +249,7 @@ while not flag_conv:
             b[i] = -(2 / dx2 + n[i] + p[i])
             f[i] = n[i] - p[i] - dop[i] - fi[i] * (n[i] + p[i])
 
+PlotResult(n,p,fi, "Equilibrium case")
 print("Start solving the non-equilibrium case...")
 
 # ========================================================================
@@ -209,11 +259,12 @@ print("Start solving the non-equilibrium case...")
 
 Vas, av_currs = [], []
 
-Va = 0
+Va, v_index = 0, 0
 dVa = Va_max / n_steps
 while Va < Va_max:
     Va = Va + dVa
     fi[0] += dVa
+    v_index += 1
 
     flag_conv = False # flag for convergence
     k_iter = 0
@@ -271,7 +322,7 @@ while Va < Va_max:
         for i in range(1, n_max - 1, 1):
             ap[i] =  Ber(fi[i] - fi[i-1])
             cp[i] =  Ber(fi[i] - fi[i+1])
-            bp[i] =  (Ber(fi[i-1] - fi[i]) + Ber(fi[i+1] - fi[i]))
+            bp[i] =  -(Ber(fi[i-1] - fi[i]) + Ber(fi[i+1] - fi[i]))
             # fp[i] = (Ldi*Ldi * dx2 / Vt) * (p[i] * n[i] - 1) / (tau_p0 * (n[i] + 1) + tau_n0 * (p[i] + 1)) 
         
         # (2.c) Solve hole current density equation using LU decomposition method
@@ -324,10 +375,11 @@ while Va < Va_max:
     Vas.append(Va)
     av_currs.append(av_curr)
     print(f"Va: {Va:.3f}  av_curr: {av_curr:.7e}")
-
+    if v_index % 10 == 0 or Va == Va_max:
+        PlotResult(n,p,fi, f"Applied voltage: {Va:.3f} V")
  
 plt.plot(Vas, av_currs, linewidth=3)
 plt.xlabel("Applied Voltage [V]")
 plt.ylabel("Average current [I]")
 plt.title("Average current vs. applied voltage")
-plt.savefig("Average current vs. applied voltage.png")
+plt.savefig("Average current vs. applied voltage.pdf")
