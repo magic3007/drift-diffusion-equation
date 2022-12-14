@@ -34,8 +34,8 @@ tau_p0 = 5e-7 # [s] hole lifetime
 # =============================================================
 # Define the simulation parameters
 # =============================================================
-delta_acc = 1e-7 # preset the tolerance
-Va_max = 0.66 # [V] maximum applied bias
+delta_acc = 1e-6 # preset the tolerance
+Va_max = 10 # [V] maximum applied bias
 n_steps = 100 # number of steps
 
 
@@ -102,6 +102,11 @@ def Ber(x):
         return 1 / sum
 
 def LuDecomposition(a, b, c, f):
+    """ Solve linear functions.
+    b_0 x_0 = f_0
+    a_i x_{i-1} + b_i x_i + c_i x_{i+1} = f_i, i = 1, 2, ..., n-2
+    b_{n-1} x_{n-1} = f{n-1}
+    """
     length = len(a)
     assert len(b) == length
     assert len(c) == length
@@ -161,8 +166,13 @@ def PlotResult(n, p, fi, title):
         el_field2[i] = -(fi[i+1] - fi[i-1]) * Vt / dx / Ldi / 2
     nf = [ni * x for x in n]
     pf = [ni * x for x in p]
+    
+    plt.figure().clear()
+    plt.close()
+    plt.cla()
+    plt.clf()
+    filename = title + ".svg"
 
-    filename = title + ".pdf"
     fig, ax = plt.subplots(2, 2, figsize=(15, 15))
     fig.tight_layout(h_pad=3, w_pad=3)
     fig.suptitle(title, fontsize=16)
@@ -210,8 +220,8 @@ print("Start solving the equilibrium case...")
 # and initlize the forcing function
 # ========================================================================
 dx2 = dx * dx
-n = list(map(math.exp, fi))
-p = list(map(lambda x: math.exp(-x), fi))
+n = list(map(math.exp, fi)) # [cm^-3], electron density
+p = list(map(lambda x: math.exp(-x), fi)) # [cm^-3], hole density
 a = [1 / dx2 for x in range(n_max)]
 c = [1 / dx2 for x in range(n_max)]
 b = [-(2 / dx2 + n[i] + p[i]) for i in range(n_max)]
@@ -297,6 +307,7 @@ while Va < Va_max:
             an[i] = Ber(fi[i-1] - fi[i])
             cn[i] = Ber(fi[i+1] - fi[i])
             bn[i] = -(Ber(fi[i] - fi[i-1]) + Ber(fi[i] - fi[i+1]))
+            fn[i] = 0
             # fn[i] = (Ldi*Ldi * dx2 / Vt) * (p[i] * n[i] - 1) / (tau_p0 * (n[i] + 1) + tau_n0 * (p[i] + 1)) 
             
         # (1.c) Solve electron current density equation using LU decomposition method
@@ -323,6 +334,7 @@ while Va < Va_max:
             ap[i] =  Ber(fi[i] - fi[i-1])
             cp[i] =  Ber(fi[i] - fi[i+1])
             bp[i] =  -(Ber(fi[i-1] - fi[i]) + Ber(fi[i+1] - fi[i]))
+            fp[i] = 0
             # fp[i] = (Ldi*Ldi * dx2 / Vt) * (p[i] * n[i] - 1) / (tau_p0 * (n[i] + 1) + tau_n0 * (p[i] + 1)) 
         
         # (2.c) Solve hole current density equation using LU decomposition method
@@ -378,6 +390,10 @@ while Va < Va_max:
     if v_index % 10 == 0 or Va == Va_max:
         PlotResult(n,p,fi, f"Applied voltage: {Va:.3f} V")
  
+plt.figure().clear()
+plt.close()
+plt.cla()
+plt.clf()
 plt.plot(Vas, av_currs, linewidth=3)
 plt.xlabel("Applied Voltage [V]")
 plt.ylabel("Average current [I]")
